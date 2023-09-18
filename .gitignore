@@ -1,0 +1,7 @@
+*.dot
+*.png
+venv/
+.vscode/
+.idea/
+*.pyc
+__pycache__/
