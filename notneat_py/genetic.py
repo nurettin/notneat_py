@@ -1,9 +1,8 @@
-import os
 from copy import deepcopy
 from random import choices
 from typing import List, Dict, Callable, Tuple, Iterable
 
-from notneat_py.graph import Graph, generate_neural_network, crossover, mutate, evaluate_graph, to_dot_file
+from notneat_py.graph import Graph, generate_neural_network, crossover, mutate, evaluate_graph, to_dot_file, significance
 
 
 def generate_population(size: int, layers: List[int]) -> List[Graph]:
@@ -20,20 +19,21 @@ def cluster_iterator(clusters: List[List[Graph]]):
             yield g
 
 
-def evaluate_population_fitness(population: Iterable[Graph], fitness_function: FitnessFunctionType, target: float = 0.001) -> Tuple[Dict[int, float], bool, float, Graph]:
+def evaluate_population_fitness(population: Iterable[Graph], fitness_function: FitnessFunctionType) -> Tuple[Dict[int, float], float, float, Graph]:
     fitness = {}
-    target_reached = False
     best_fitness = float('+inf')
+    total_fitness = 0
+    total_count = 0
     fittest = None
     for g in population:
         f = fitness_function(g)
+        total_fitness += f
+        total_count += 1
         fitness[g.graph_id] = f
         if f < best_fitness:
             best_fitness = f
             fittest = g
-        if f <= target:
-            target_reached = True
-    return fitness, target_reached, best_fitness, fittest
+    return fitness, best_fitness, total_fitness / total_count, fittest
 
 
 #
@@ -84,9 +84,9 @@ def crossover_population(population: List[Graph], fitness: Dict[int, float], eli
 #         new_clusters.append(crossover_cluster)
 #     return new_clusters
 
-def mutate_population(population: List[Graph], mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
+def mutate_population(population: List[Graph], mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_delete_edge_probability: float = 0.01, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
     for member in population:
-        mutate(member, mutate_weight_probability=mutate_weight_probability, mutate_weight_amount=mutate_weight_amount, mutate_new_node_probability=mutate_new_node_probability, mutate_activation_probability=mutate_activation_probability, mutate_bias_probability=mutate_bias_probability, mutate_bias_amount=mutate_bias_amount)
+        mutate(member, mutate_weight_probability=mutate_weight_probability, mutate_weight_amount=mutate_weight_amount, mutate_delete_edge_probability=mutate_delete_edge_probability, mutate_new_node_probability=mutate_new_node_probability, mutate_activation_probability=mutate_activation_probability, mutate_bias_probability=mutate_bias_probability, mutate_bias_amount=mutate_bias_amount)
     return population
 
 
@@ -100,84 +100,77 @@ def mutate_population(population: List[Graph], mutate_weight_probability: float 
 #     return new_population
 
 
-def genetic_algorithm(population_size: int, layers: List[int], fitness_function: FitnessFunctionType, max_generations: int = 100, elite_percentage: float = 0.1, target_fitness: float = 0.01, mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
+def genetic_algorithm(population_size: int, layers: List[int], fitness_function: FitnessFunctionType, max_generations: int = 100, elite_percentage: float = 0.1, target_fitness: float = 0.01, mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_delete_edge_probability: float = 0.01, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
     # initialize population
     population = generate_population(population_size, layers)
-    fitness, target_reached, generation_best_fitness, generation_fittest = evaluate_population_fitness(population, fitness_function, target=target_fitness)
-    best_fitness = generation_best_fitness
-    fittest = generation_fittest
-    print(f"GENERATION {0} FITTEST: Graph({fittest.graph_id}) score: {best_fitness}")
-    if target_reached:
-        return generation_fittest, best_fitness
+    best_fitness = float('+inf')
+    fittest = None
     for generation in range(1, max_generations):
-        population = crossover_population(population, fitness, elite_percentage=elite_percentage)
-        population = mutate_population(population, mutate_weight_probability=mutate_weight_probability, mutate_weight_amount=mutate_weight_amount, mutate_new_node_probability=mutate_new_node_probability, mutate_activation_probability=mutate_activation_probability, mutate_bias_probability=mutate_bias_probability, mutate_bias_amount=mutate_bias_amount)
-        fitness, target_reached, generation_best_fitness, generation_fittest = evaluate_population_fitness(population, fitness_function, target=target_fitness)
-        if generation_best_fitness < best_fitness:
+        fitness, generation_best_fitness, generation_mean_fitness, generation_fittest = evaluate_population_fitness(population, fitness_function)
+        improved = generation_best_fitness < best_fitness
+        fittest = fittest or generation_fittest
+        if improved:
             best_fitness = generation_best_fitness
             fittest = generation_fittest
-            print(f"GENERATION {generation} FITTEST: Graph({fittest.graph_id}) score: {best_fitness} pop size: {len(population)}")
+        if improved or (generation % 100 == 0):
+            print(f"GENERATION {generation} FITTEST: Graph({fittest.graph_id}) best: {best_fitness} mean: {generation_mean_fitness} pop size: {len(population)}")
+        target_reached = best_fitness <= target_fitness
         if target_reached:
             return fittest, best_fitness
-    return fittest, best_fitness
+        population = crossover_population(population, fitness, elite_percentage=elite_percentage)
+        population = mutate_population(population, mutate_weight_probability=mutate_weight_probability, mutate_weight_amount=mutate_weight_amount, mutate_delete_edge_probability=mutate_delete_edge_probability, mutate_new_node_probability=mutate_new_node_probability, mutate_activation_probability=mutate_activation_probability, mutate_bias_probability=mutate_bias_probability, mutate_bias_amount=mutate_bias_amount)
+    else:
+        return fittest, best_fitness
 
 
-def experiment_xor():
-    inputs = [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]
-    outputs = [[0, 0], [0, 1], [0, 1], [1, 0], [0, 1], [1, 0], [1, 0], [1, 1]]
-
-    def fitness_xor(graph: Graph, verbose: bool = False) -> float:
-        score = 0
+def experiment_truth_table(inputs: List[List[int]], outputs: List[List[int]]):
+    def fitness_truth_table(graph: Graph, verbose: bool = False, rounding: bool = False) -> float:
+        total_diff = 0.0
+        score = 0.0
         for i, o in zip(inputs, outputs):
             r = evaluate_graph(i, graph)
+            if rounding:
+                r = [float(round(o)) for o in r]
             if verbose:
                 print(f"Graph({graph.graph_id}) {i} -> {r} (expected: {o})")
-            diff = sum(abs(a - b) for a, b in zip(o, r))
-            score += diff
+            diff: float = sum(abs(a - b) for a, b in zip(o, r))
+            total_diff += diff
+            score += significance(diff)
+        # score *= len(graph.nodes) - len(graph.inputs)
         if verbose:
-            print(f"Graph({graph.graph_id}) score: {score}")
+            print(f"Graph({graph.graph_id}) total diff: {total_diff} score: {score}")
         return score
 
-        # g = generate_neural_network([2, 2, 1])
-
-    # g.edges.clear()
-    # g.edges[(0, 2)] = 20.0
-    # g.edges[(1, 2)] = 20.0
-    # g.edges[(0, 3)] = -20.0
-    # g.edges[(1, 3)] = -20.0
-    # g.edges[(2, 4)] = 20.0
-    # g.edges[(3, 4)] = 20.0
-    # g.biases[2] = -10.0
-    # g.biases[3] = 30.0
-    # g.biases[4] = -30.0
-    # g.activation[2] = ActivationFunctionType.SIGMOID
-    # g.activation[3] = ActivationFunctionType.SIGMOID
-    # g.activation[4] = ActivationFunctionType.SIGMOID
-    # print(g)
-    # fitness_xor(g, verbose=True)
-
     graph, best_fitness = genetic_algorithm(
-        population_size=50,
-        layers=[3, 5, 4, 3, 2],
-        fitness_function=fitness_xor,
+        population_size=100,
+        layers=[len(inputs[0]), 5, len(outputs[0])],
+        fitness_function=fitness_truth_table,
         max_generations=10000,
-        elite_percentage=0.1,
-        target_fitness=0.1,
-        mutate_weight_probability=0.1,
+        elite_percentage=0.3,
+        target_fitness=0.3,
+        mutate_weight_probability=0.2,
         mutate_weight_amount=0.1,
-        mutate_new_node_probability=0.0,
-        mutate_activation_probability=0.1,
-        mutate_bias_probability=0.1,
+        mutate_new_node_probability=1.0 / 1_000_000,
+        mutate_activation_probability=0.2,
+        mutate_bias_probability=0.2,
         mutate_bias_amount=0.1,
     )
     print(graph)
-    fitness_xor(graph=graph, verbose=True)
+    fitness_truth_table(graph=graph, verbose=True, rounding=True)
     print(f"{best_fitness=}")
     with open(f"graph.dot", "w") as f:
         to_dot_file(graph, f)
-    os.system(f"dot graph.dot -Tpng -o graph.png")
-    os.system(f"eog graph.png")
+    # os.system(f"dot graph.dot -Tpng -o graph.png")
+    # os.system(f"eog graph.png")
 
 
 if __name__ == "__main__":
-    experiment_xor()
+    # full adder
+    inputs = [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1], [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]]
+    outputs = [[0, 0], [0, 1], [0, 1], [1, 0], [0, 1], [1, 0], [1, 0], [1, 1]]
+
+    # xor
+    # inputs = [[0, 0], [0, 1], [1, 0], [1, 1]]
+    # outputs = [[0], [1], [1], [0]]
+
+    experiment_truth_table(inputs, outputs)

@@ -4,6 +4,8 @@ from random import random, choice
 import os
 from copy import deepcopy
 
+import math
+
 from notneat_py.activation import ACTIVATION_FUNCTION_LIST, ActivationFunctionType, activation_functions
 
 
@@ -118,10 +120,14 @@ def evaluate_graph(inputs: List[float], graph: Graph) -> List[float]:
             activation_function = activation_functions[activation_type]
             node_values[node] = activation_function(weighted_sum + graph.biases.get(node, 0.0))
 
-    # Collect the output values
-    output_values: List[float] = [node_values[output_node] for output_node in graph.outputs]
+    # let's allow broken neural networks by returning 0 if no output is found
+    output_values: List[float] = [node_values.get(output_node, 0.0) for output_node in graph.outputs]
 
     return output_values
+
+
+def significance(diff: float) -> float:
+    return 0.0 if math.isclose(diff, 0) else diff * diff if diff >= 1 else min(diff * diff, 1.0 / diff)
 
 
 def graph_similarity(g1: Graph, g2: Graph):
@@ -147,12 +153,27 @@ def mutate_weights(graph: Graph, mutate_weight_probability: float = 0.1, mutate_
             factor = 2 * random() - 1
             amount = factor * mutate_weight_amount
             w += amount
-            # w = max(w, -5.0)
-            # w = min(w, 5.0)
+            # no clip, let GA get rid of invalid values
             graph.edges[ft] = w
 
 
-def mutate_new_node(graph: Graph, mutate_new_node_probability: float = 0.01):
+def mutate_delete_edge(graph: Graph, mutate_delete_edge_probability: float = 0.01, sort: bool = False):
+    if math.isclose(mutate_delete_edge_probability, 0.0):
+        return
+    mutated = False
+    if random() < mutate_delete_edge_probability:
+        # find the weakest edge
+        edge, weight = min([(edge, weight) for edge, weight in graph.edges.items() if edge[0] not in graph.inputs and edge[1] not in graph.outputs], key=lambda e: abs(e[1]))
+        graph.edges.pop(edge, None)
+        mutated = True
+        print(f"Graph({graph.graph_id}) deleting Edge {edge} with weight {weight}")
+    if mutated and sort:
+        graph.nodes = topological_sort(graph)
+
+
+def mutate_new_node(graph: Graph, mutate_new_node_probability: float = 0.01, sort: bool = False):
+    if math.isclose(mutate_new_node_probability, 0.0):
+        return
     mutated = False
     for (f, t), w in list(graph.edges.items()):
         if random() < mutate_new_node_probability:
@@ -161,7 +182,8 @@ def mutate_new_node(graph: Graph, mutate_new_node_probability: float = 0.01):
             graph.edges[(f, n)] = w
             graph.edges[(n, t)] = w
             del graph.edges[(f, t)]
-    if mutated:
+            print(f"Graph({graph.graph_id}) adding new node + edge: {f} -> {n} (new) -> {t} and disconnecting {f} -> {t}")
+    if mutated and sort:
         graph.nodes = topological_sort(graph)
 
 
@@ -187,8 +209,9 @@ def mutate_bias(graph: Graph, mutate_bias_probability: float = 0.1, mutate_bias_
                 graph.activation[node] = new_activation
 
 
-def mutate(graph: Graph, mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
+def mutate(graph: Graph, mutate_weight_probability: float = 0.1, mutate_weight_amount: float = 0.1, mutate_delete_edge_probability: float = 0.01, mutate_new_node_probability: float = 0.01, mutate_activation_probability: float = 0.01, mutate_bias_probability: float = 0.1, mutate_bias_amount: float = 0.1):
     mutate_weights(graph, mutate_weight_probability=mutate_weight_probability, mutate_weight_amount=mutate_weight_amount)
+    mutate_delete_edge(graph, mutate_delete_edge_probability=mutate_delete_edge_probability)
     mutate_new_node(graph, mutate_new_node_probability=mutate_new_node_probability)
     mutate_activation(graph, mutate_activation_probability=mutate_activation_probability)
     mutate_bias(graph, mutate_bias_probability=mutate_bias_probability, mutate_bias_amount=mutate_bias_amount)
