@@ -163,10 +163,10 @@ def mutate_delete_edge(graph: Graph, mutate_delete_edge_probability: float = 0.0
     mutated = False
     if random() < mutate_delete_edge_probability:
         # find the weakest edge
-        edge, weight = min([(edge, weight) for edge, weight in graph.edges.items() if edge[0] not in graph.inputs and edge[1] not in graph.outputs], key=lambda e: abs(e[1]))
-        graph.edges.pop(edge, None)
-        mutated = True
-        print(f"Graph({graph.graph_id}) deleting Edge {edge} with weight {weight}")
+        edge, weight = min([(edge, weight) for edge, weight in graph.edges.items() if edge[0] not in graph.inputs and edge[1] not in graph.outputs], key=lambda e: abs(e[1]), default=((None, None), None))
+        mutated = graph.edges.pop(edge, None) is not None
+        if mutated:
+            print(f"Graph({graph.graph_id}) deleting Edge {edge} with weight {weight}")
     if mutated and sort:
         graph.nodes = topological_sort(graph)
 
