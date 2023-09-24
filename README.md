@@ -15,9 +15,3 @@ The mutation steps can add new nodes, remove edges, change weights and choose ne
 This repo does NOT contain an implementation of NEAT (NeuroEvolution of Augmented Topologies).
 
 
-# RUNNING TESTS
-
-```
-python -m unittest discover
-```
-
